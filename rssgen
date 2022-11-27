@@ -1,0 +1,79 @@
+#!/bin/bash
+# by Dominik Stanisław Suchora <suchora.dominik7@gmail.com>
+# License: GNU GPLv3
+
+lang="en-us"
+user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) QtWebEngine/5.15.2 Chrome/87.0.4280.144 Safari/537.36"
+COOKIE=" "
+
+usage() {
+    NAME="$(basename "$0")"
+    printf "%s [OPTION]... [URL]\nGenerate rss feed for a website\n\n" "$NAME"
+    printf "Options:\n  --cookie COOKIE\t\t\tspecify cookies\n"
+    printf "  --user-agent USER_AGENT\t\tspecify user agent string to send to http server\n"
+    printf "  -l,  --lang LANG\t\t\tset language\n"
+    printf "  -t,  --title TITLE\t\t\tset title of rss feed\n"
+    printf "  -p,  --pic EVAL\t\t\tspecify command to evaluate for rss picture\n"
+    printf "  -d,  --description DESCRIPTION\tset description of rss feed\n"
+    printf "  -D,  --dates EVAL\t\t\tspecify command to evaluate to get dates of items\n"
+    printf "  -T,  --titles EVAL\t\t\tspecify command to evaluate to get titles of items\n"
+    printf "  -L,  --links EVAL\t\t\tspecify command to evaluate to get links of items\n"
+    printf "  -I,  --insides EVAL\t\t\tspecify command to evaluate to get insides of items\n"
+    printf "  -h,  --help\t\t\t\tshow help\n"
+    printf "\nResults will be printed to stdout.\n"
+}
+
+[ $# -lt 1 ] && { usage; exit 1; }
+
+while [ $# -gt 0 ]
+do
+    case "$1" in
+        --cookie) COOKIE="$2"; shift;;
+        --user-agent) user_agent="$2"; shift;;
+        -t|--title) TITLE="$2"; shift;;
+        -l|--lang) lang="$2"; shift;;
+        -p|--pic) PIC="$2"; shift;;
+        -d|--description) DESCRIPTION="$2"; shift;;
+        -D|--dates) DATES="$2"; shift;;
+        -T|--titles) TITLES="$2"; shift;;
+        -L|--links) LINKS="$2"; shift;;
+        -I|--insides) INSIDES="$2"; shift;;
+        -h|--help) usage; exit;;
+        *) LINK="$1"; shift;;
+    esac
+    shift
+done
+
+[ -z "$LINK" ] && { usage; exit 1; }
+
+declare t
+if [ -n "$COOKIE" ]
+then
+    t="$(curl -s -g -L --user-agent "$user_agent" -H 'Accept-Encoding: gzip, deflate' --compressed --cookie "$COOKIE" "$LINK")"
+else
+    t="$(curl -s -g -L --user-agent "$user_agent" -H 'Accept-Encoding: gzip, deflate' --compressed "$LINK")"
+fi
+
+echo '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel>'
+[ -n "$TITLE" ] && echo "<title>$TITLE</title>"
+[ -n "$DESCRIPTION" ] && echo "<description>$DESCRIPTION</description>"
+echo "<language>$lang</language>"
+[ -n "$PIC" ] && echo "<image><title>$TITLE</title><url>$PIC</url></image>"
+
+mapfile dates -t < <(eval "$DATES" <<< "$t")
+mapfile titles -t < <(eval "$TITLES" <<< "$t")
+mapfile links -t < <(eval "$LINKS" <<< "$t")
+mapfile insides -t < <(eval "$INSIDES" <<< "$t")
+
+end="$((${#titles[@]}-1))"
+for ((i=0;i<=end;i++))
+do
+    echo "<item>"
+    [ -n "$TITLES" ] && printf "<title>%s</title>\n" "${titles[$i]%$'\n'}"
+    [ -n "$LINKS" ] && printf "<guid>%s</guid>\n<link>%s</link>\n" "${links[$i]%$'\n'}" "${links[$i]%$'\n'}"
+    [ -n "$DATES" ] && printf "<pubDate>%s</pubDate>\n" "${dates[$i]%$'\n'}"
+    [ -n "$INSIDES" ] && printf "<description><![CDATA[\n%s\n]]></description>\n" "${insides[$i]%$'\n'}"
+    echo "</item>"
+done
+
+echo '</channel></rss>'
